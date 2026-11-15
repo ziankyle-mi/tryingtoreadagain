@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ivory">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tryingtoreadagain </title>
+  <link rel="icon" type="image/jpeg" href="/logo-page-bird.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+
+<body>
+  <div class="shell">
+    <header class="mast">
+      <div class="mast-brand-cluster">
+        <button type="button" class="mast-title mast-home-btn" id="brandHomeBtn" title="Back to Library">
+          <img src="/logo-page-bird.jpg" alt="tryingtoreadagain logo" class="brand-logo" />
+          <span>tryingtoreadagain</span>
+        </button>
+        <div class="reading-meta hidden" id="activeBookBadge" aria-live="polite">
+          <span class="reading-sep" aria-hidden="true"></span>
+          <span class="reading-fmt" id="activeBookFmt">EPUB</span>
+          <span class="reading-title" id="activeBookTitle"></span>
+        </div>
+      </div>
+
+      <div class="mast-controls">
+        <button class="btn btn-ghost hidden" id="backLibraryBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Library</span>
+        </button>
+        <button class="btn active hidden" id="btnSpread" aria-pressed="true">2-Page Spread</button>
+        <button class="btn active hidden" id="btnFlow" aria-pressed="true">Paginated</button>
+        <button class="btn hidden" id="btnToc" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          <span>Chapters</span>
+        </button>
+        <button class="btn active hidden" id="btnMargin" aria-pressed="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="15" y1="3" x2="15" y2="21" />
+          </svg>
+          <span>Marginalia</span>
+        </button>
+        <button class="btn hidden" id="btnFocus" aria-pressed="false" title="Distraction-free focus mode (F)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+          </svg>
+          <span>Focus</span>
+        </button>
+      </div>
+
+      <div class="split-theme-box" role="group" aria-label="Reading theme">
+        <button type="button" class="mode-pill" id="dayNightToggle" aria-label="Toggle day or night mode">
+          <svg id="dayNightIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <line x1="12" y1="2" x2="12" y2="4" />
+            <line x1="12" y1="20" x2="12" y2="22" />
+            <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+            <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+            <line x1="2" y1="12" x2="4" y2="12" />
+            <line x1="20" y1="12" x2="22" y2="12" />
+            <line x1="6.34" y1="17.66" x2="4.93" y2="19.07" />
+            <line x1="19.07" y1="4.93" x2="17.66" y2="6.34" />
+          </svg>
+          <span id="dayNightLabel">Day</span>
+        </button>
+        <div class="stock-rail" id="stockRail" role="group" aria-label="Paper stock"></div>
+      </div>
+    </header>
+
+    <!-- CATALOG VIEW -->
+    <section class="catalog-wrap" id="catalogView">
+      <div class="drop-overlay hidden" id="dropOverlay">
+        <div class="drop-overlay-box">Drop .epub or .pdf files to add to your library</div>
+      </div>
+
+      <div class="catalog-bar">
+        <div>
+          <h1 class="catalog-heading">Library</h1>
+          <div class="catalog-sub" id="libraryCount">Click any cover to open</div>
+        </div>
+        <div class="catalog-tools">
+          <div class="seg-group" role="group" aria-label="Filter by format">
+            <button class="seg-btn active fmt-filter" data-fmt="all" aria-pressed="true">All</button>
+            <button class="seg-btn fmt-filter" data-fmt="EPUB" aria-pressed="false">EPUB</button>
+            <button class="seg-btn fmt-filter" data-fmt="PDF" aria-pressed="false">PDF</button>
+          </div>
+          <div class="search-wrap">
+            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input type="search" class="catalog-search" id="searchInput" placeholder="Search title or author..."
+              aria-label="Filter books by title or author" />
+          </div>
+          <input type="file" id="upFile" accept=".epub,.pdf" multiple hidden />
+          <button class="btn btn-accent" id="upBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Import Book</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="cover-grid" id="catalogGrid"></div>
+    </section>
+
+    <!-- FOLIO READER VIEW -->
+    <section class="folio-body hidden" id="folioView">
+      <aside class="toc-drawer hidden" id="tocDrawer" aria-label="Table of Contents">
+        <div class="drawer-head">
+          <span class="marg-title" style="margin:0;">Chapters</span>
+          <button class="btn-ghost" id="closeTocBtn" aria-label="Close chapters drawer">Close</button>
+        </div>
+        <div class="toc-list" id="tocList">
+          <div class="muted-note">Open a book to inspect its chapters.</div>
+        </div>
+      </aside>
+
+      <div class="reader-column">
+        <div class="spread-stage" id="spreadStage"></div>
+
+        <footer class="reader-footer">
+          <button class="btn" id="prevBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Prev</span>
+          </button>
+          <div class="footer-center">
+            <span id="locStatus">Ready</span>
+            <div class="footer-progress-track" aria-hidden="true">
+              <div class="footer-progress-fill" id="footerProgressFill"></div>
+            </div>
+          </div>
+          <div class="footer-actions">
+            <div class="pdf-zoom-group hidden" id="pdfZoomGroup">
+              <button type="button" class="btn btn-sm" id="zoomOutBtn" aria-label="Zoom out">-</button>
+              <span id="zoomVal" class="zoom-val">100%</span>
+              <button type="button" class="btn btn-sm" id="zoomInBtn" aria-label="Zoom in">+</button>
+              <button type="button" class="btn btn-sm active" id="zoomFitBtn" aria-pressed="true"
+                title="Fit pages to reading stage">Fit</button>
+            </div>
+            <button class="btn" id="bookmarkBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+              <span>Bookmark</span>
+            </button>
+            <button class="btn" id="nextBtn">
+              <span>Next</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      <aside class="marginalia" id="marginaliaRail">
+        <div class="rail-header">
+          <span class="marg-title" style="margin:0;">Reader Panel</span>
+          <button type="button" class="btn-ghost" id="hideMarginBtn" title="Hide side panel">Hide</button>
+        </div>
+
+        <div>
+          <div class="section-head">
+            <span class="marg-title" style="margin:0;">Dictionary</span>
+            <div style="display:flex;gap:4px;">
+              <button type="button" class="btn-ghost hidden" id="clearDictBtn">Clear</button>
+              <button type="button" class="btn-ghost" id="toggleDictSectionBtn" aria-expanded="true">Hide</button>
+            </div>
+          </div>
+          <div class="marg-card" id="dictPin">
+            <div class="muted-note">Double-click or select any word (or Alt + Click) to inspect its definition,
+              phonetics, and audio without obscuring prose.</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="marg-title">Typography &amp; Theme Safety</div>
+          <div class="marg-card controls-stack">
+            <label class="ctrl-row">
+              <span>Font</span>
+              <select id="fontFamilySelect" class="ctrl-select">
+                <option value='"Newsreader", Georgia, serif'>Newsreader (Editorial)</option>
+                <option value='"Palatino Linotype", Georgia, serif'>Palatino / Georgia</option>
+                <option value='"Inter", system-ui, -apple-system, sans-serif'>Inter Sans</option>
+                <option value='ui-monospace, Consolas, monospace'>Studio Mono</option>
+              </select>
+            </label>
+            <label class="ctrl-row">
+              <span>Size (<span id="proseSizeVal">17px</span>)</span>
+              <input type="range" id="proseSize" min="14" max="24" value="17" class="ctrl-range" />
+            </label>
+            <label class="ctrl-row">
+              <span>Line Height (<span id="lineHeightVal">1.72</span>)</span>
+              <input type="range" id="lineHeightRange" min="1.4" max="2.1" step="0.04" value="1.72"
+                class="ctrl-range" />
+            </label>
+            <label class="ctrl-row" style="cursor:pointer;">
+              <span>EPUB Contrast Guard</span>
+              <input type="checkbox" id="epubGuard" checked />
+            </label>
+            <label class="ctrl-row">
+              <span>PDF Mode</span>
+              <select id="pdfAppearance" class="ctrl-select">
+                <option value="">Original Paper</option>
+                <option value="warm">Warm Paper</option>
+                <option value="invert">Smart Dark Invert</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <div class="marg-title">Bookmarks</div>
+          <div class="marg-card list-card" id="bookmarkList">
+            <div class="muted-note">No bookmarks saved for this book yet.</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="marg-title">Saved Vocabulary</div>
+          <div class="marg-card list-card" id="vocabList">
+            <div class="muted-note">Click "Save Word" on a lookup to build your lexicon.</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </div>
+
+  <button type="button" class="focus-exit-btn" id="focusExitBtn" aria-label="Exit focus mode (Escape)">Exit Focus ·
+    Esc</button>
+  <button type="button" class="focus-edge-nav prev" id="focusPrevBtn" aria-label="Previous page">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  </button>
+  <button type="button" class="focus-edge-nav next" id="focusNextBtn" aria-label="Next page">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  </button>
+
+  <div class="float-pop" id="floatPop" role="dialog" aria-label="Dictionary definition"></div>
+  <div class="status-toast" id="statusToast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
