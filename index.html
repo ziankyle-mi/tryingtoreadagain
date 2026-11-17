@@ -5,12 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>tryingtoreadagain </title>
-  <link rel="icon" type="image/jpeg" href="/logo-page-bird.jpg" />
+  <link rel="icon" type="image/png" href="/brand/logo-page-bird.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" />
-  <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
 </head>
 
 <body>
@@ -18,7 +18,7 @@
     <header class="mast">
       <div class="mast-brand-cluster">
         <button type="button" class="mast-title mast-home-btn" id="brandHomeBtn" title="Back to Library">
-          <img src="/logo-page-bird.jpg" alt="tryingtoreadagain logo" class="brand-logo" />
+          <img src="/brand/logo-page-bird.png" alt="tryingtoreadagain logo" class="brand-logo" />
           <span>tryingtoreadagain</span>
         </button>
         <div class="reading-meta hidden" id="activeBookBadge" aria-live="polite">
@@ -36,8 +36,6 @@
           </svg>
           <span>Library</span>
         </button>
-        <button class="btn active hidden" id="btnSpread" aria-pressed="true">2-Page Spread</button>
-        <button class="btn active hidden" id="btnFlow" aria-pressed="true">Paginated</button>
         <button class="btn hidden" id="btnToc" aria-pressed="false">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -67,30 +65,69 @@
         </button>
       </div>
 
-      <div class="split-theme-box" role="group" aria-label="Reading theme">
-        <button type="button" class="mode-pill" id="dayNightToggle" aria-label="Toggle day or night mode">
-          <svg id="dayNightIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4" />
-            <line x1="12" y1="2" x2="12" y2="4" />
-            <line x1="12" y1="20" x2="12" y2="22" />
-            <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
-            <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
-            <line x1="2" y1="12" x2="4" y2="12" />
-            <line x1="20" y1="12" x2="22" y2="12" />
-            <line x1="6.34" y1="17.66" x2="4.93" y2="19.07" />
-            <line x1="19.07" y1="4.93" x2="17.66" y2="6.34" />
+      <div class="appearance-wrap" id="appearanceWrap">
+        <button type="button" class="appearance-trigger" id="appearanceTrigger" aria-haspopup="true"
+          aria-expanded="false" aria-controls="appearancePopover" aria-label="Appearance & reading theme">
+          <span class="appearance-dot" id="appearanceDot" aria-hidden="true"></span>
+          <span id="appearanceLabel">Vellum</span>
+          <svg class="appearance-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9" />
           </svg>
-          <span id="dayNightLabel">Day</span>
         </button>
-        <div class="stock-rail" id="stockRail" role="group" aria-label="Paper stock"></div>
+
+        <div class="appearance-popover" id="appearancePopover" role="dialog" aria-label="Appearance" aria-hidden="true">
+          <div class="appearance-section-label">Appearance</div>
+          <div class="spring-rail" id="appearanceModeRail" role="group" aria-label="Day or Night mode">
+            <div class="spring-thumb" id="appearanceModeThumb" aria-hidden="true"></div>
+            <button type="button" class="spring-seg-btn" data-mode="light" aria-pressed="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <line x1="12" y1="2" x2="12" y2="4" />
+                <line x1="12" y1="20" x2="12" y2="22" />
+                <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+                <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+                <line x1="2" y1="12" x2="4" y2="12" />
+                <line x1="20" y1="12" x2="22" y2="12" />
+                <line x1="6.34" y1="17.66" x2="4.93" y2="19.07" />
+                <line x1="19.07" y1="4.93" x2="17.66" y2="6.34" />
+              </svg>
+              <span>Day</span>
+            </button>
+            <button type="button" class="spring-seg-btn" data-mode="dark" aria-pressed="false">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+              <span>Night</span>
+            </button>
+          </div>
+
+          <div class="appearance-section-label" style="margin-top:14px;">Paper stock</div>
+          <div class="swatch-grid" id="appearanceSwatches" role="group" aria-label="Paper stock"></div>
+
+          <div class="appearance-layout hidden" id="appearanceLayoutSection">
+            <div class="appearance-section-label">Page layout</div>
+            <div class="popover-layout-stack">
+              <div class="seg-group popover-seg" id="layoutSpreadGroup" role="group" aria-label="Page spread">
+                <button type="button" class="seg-btn" data-spread="false" aria-pressed="false">Single page</button>
+                <button type="button" class="seg-btn active" data-spread="true" aria-pressed="true">2-page spread</button>
+              </div>
+              <div class="seg-group popover-seg" id="layoutFlowGroup" role="group" aria-label="Reading flow">
+                <button type="button" class="seg-btn active" data-flow="paginated" aria-pressed="true">Paginated</button>
+                <button type="button" class="seg-btn" data-flow="scroll" aria-pressed="false">Scroll</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
 
     <!-- CATALOG VIEW -->
     <section class="catalog-wrap" id="catalogView">
       <div class="drop-overlay hidden" id="dropOverlay">
-        <div class="drop-overlay-box">Drop .epub or .pdf files to add to your library</div>
+        <div class="drop-overlay-box">Drop .epub, .pdf, .txt, or .md files to add to your library</div>
       </div>
 
       <div class="catalog-bar">
@@ -103,6 +140,8 @@
             <button class="seg-btn active fmt-filter" data-fmt="all" aria-pressed="true">All</button>
             <button class="seg-btn fmt-filter" data-fmt="EPUB" aria-pressed="false">EPUB</button>
             <button class="seg-btn fmt-filter" data-fmt="PDF" aria-pressed="false">PDF</button>
+            <button class="seg-btn fmt-filter" data-fmt="TXT" aria-pressed="false">TXT</button>
+            <button class="seg-btn fmt-filter" data-fmt="MD" aria-pressed="false">MD</button>
           </div>
           <div class="search-wrap">
             <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -113,7 +152,7 @@
             <input type="search" class="catalog-search" id="searchInput" placeholder="Search title or author..."
               aria-label="Filter books by title or author" />
           </div>
-          <input type="file" id="upFile" accept=".epub,.pdf" multiple hidden />
+          <input type="file" id="upFile" accept=".epub,.pdf,.txt,.md" multiple hidden />
           <button class="btn btn-accent" id="upBtn">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -130,7 +169,7 @@
 
     <!-- FOLIO READER VIEW -->
     <section class="folio-body hidden" id="folioView">
-      <aside class="toc-drawer hidden" id="tocDrawer" aria-label="Table of Contents">
+      <aside class="toc-drawer is-closed" id="tocDrawer" aria-label="Table of Contents" aria-hidden="true">
         <div class="drawer-head">
           <span class="marg-title" style="margin:0;">Chapters</span>
           <button class="btn-ghost" id="closeTocBtn" aria-label="Close chapters drawer">Close</button>
@@ -185,7 +224,7 @@
 
       <aside class="marginalia" id="marginaliaRail">
         <div class="rail-header">
-          <span class="marg-title" style="margin:0;">Reader Panel</span>
+          <span class="marg-title" style="margin:0;">Reader panel</span>
           <button type="button" class="btn-ghost" id="hideMarginBtn" title="Hide side panel">Hide</button>
         </div>
 
@@ -204,8 +243,16 @@
         </div>
 
         <div>
-          <div class="marg-title">Typography &amp; Theme Safety</div>
+          <div class="marg-title">Typography &amp; theme</div>
           <div class="marg-card controls-stack">
+            <label class="ctrl-row">
+              <span>Format</span>
+              <select id="readingFormatSelect" class="ctrl-select">
+                <option value="editorial">Editorial (Airy)</option>
+                <option value="book">Classic Book (Indented)</option>
+                <option value="focus">Focus Spotlight</option>
+              </select>
+            </label>
             <label class="ctrl-row">
               <span>Font</span>
               <select id="fontFamilySelect" class="ctrl-select">
@@ -220,20 +267,20 @@
               <input type="range" id="proseSize" min="14" max="24" value="17" class="ctrl-range" />
             </label>
             <label class="ctrl-row">
-              <span>Line Height (<span id="lineHeightVal">1.72</span>)</span>
+              <span>Line height (<span id="lineHeightVal">1.72</span>)</span>
               <input type="range" id="lineHeightRange" min="1.4" max="2.1" step="0.04" value="1.72"
                 class="ctrl-range" />
             </label>
             <label class="ctrl-row" style="cursor:pointer;">
-              <span>EPUB Contrast Guard</span>
+              <span>EPUB contrast guard</span>
               <input type="checkbox" id="epubGuard" checked />
             </label>
             <label class="ctrl-row">
-              <span>PDF Mode</span>
+              <span>PDF mode</span>
               <select id="pdfAppearance" class="ctrl-select">
-                <option value="">Original Paper</option>
-                <option value="warm">Warm Paper</option>
-                <option value="invert">Smart Dark Invert</option>
+                <option value="">Original paper</option>
+                <option value="warm">Warm paper</option>
+                <option value="invert">Smart dark invert</option>
               </select>
             </label>
           </div>
@@ -247,9 +294,9 @@
         </div>
 
         <div>
-          <div class="marg-title">Saved Vocabulary</div>
+          <div class="marg-title">Saved vocabulary</div>
           <div class="marg-card list-card" id="vocabList">
-            <div class="muted-note">Click "Save Word" on a lookup to build your lexicon.</div>
+            <div class="muted-note">Click "Save" on a lookup to build your lexicon.</div>
           </div>
         </div>
       </aside>
@@ -274,7 +321,7 @@
   <div class="float-pop" id="floatPop" role="dialog" aria-label="Dictionary definition"></div>
   <div class="status-toast" id="statusToast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/app/main.js"></script>
 </body>
 
 </html>

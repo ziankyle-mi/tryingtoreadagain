@@ -1,5 +1,4 @@
 import {
-  seedStarterBooksIfEmpty,
   getAllBooks,
   getBook,
   saveBook,
@@ -8,10 +7,13 @@ import {
   getVocab,
   saveVocabWord,
   removeVocabWord
-} from "./storage.js";
-import { lookupDefinition } from "./dictionary.js";
-import { extractEpubMetadata, EpubController } from "./epub-reader.js";
-import { extractPdfMetadata, PdfController } from "./pdf-reader.js";
+} from "../services/storage.js";
+import { lookupDefinition, escHtml } from "../services/dictionary.js";
+import { extractEpubMetadata, EpubController } from "../readers/epub-reader.js";
+import { extractPdfMetadata, PdfController } from "../readers/pdf-reader.js";
+import { extractTextMetadata, TextController } from "../readers/text-reader.js";
+import { createThemeManager } from "../ui/theme.js";
+import { FluidSpring, VelocityTracker, projectMomentum, rubberband, attachDrawerSwipe } from "../ui/motion.js";
 
 const PREFS_KEY = "editorial_folio_prefs_v1";
 
@@ -24,8 +26,9 @@ const DEFAULT_PREFS = {
   guard: true,
   pdfMode: "",
   fontFamily: '"Newsreader", Georgia, serif',
-  fontSize: 17,
-  lineHeight: 1.72,
+  fontSize: 18,
+  lineHeight: 1.76,
+  readingFormat: "editorial",
   pdfZoom: 1.15,
   pdfFit: true,
   fontMigratedNewsreader: true
@@ -71,8 +74,18 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-function escHtml(str) {
-  return String(str || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function closeAllCoverMenus() {
+  document.querySelectorAll(".cover-menu").forEach((m) => m.classList.remove("open"));
+  document.querySelectorAll(".cover-more-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
+}
+
+async function updatePrefs(patch, notifyController = true) {
+  Object.assign(state.prefs, patch);
+  savePrefs(state.prefs);
+  syncControlsFromPrefs();
+  if (notifyController) {
+    await state.controller?.updateSettings?.(state.prefs);
+  }
 }
 
 let toastTimer = null;
@@ -84,59 +97,49 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
 
-const THEME_MODES = {
-  ivory: { label: "Ivory", mode: "light" },
-  antique: { label: "Antique", mode: "light" },
-  sage: { label: "Sage", mode: "light" },
-  ink: { label: "Ink", mode: "dark" },
-  night: { label: "Night", mode: "dark" }
-};
+const themeManager = createThemeManager({ state, savePrefs, $ });
 
-let lastDayTheme = "ivory";
-let lastNightTheme = "ink";
+let tocDrawerSwipe = null;
 
-const SUN_ICON = `<circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="6.34" y1="17.66" x2="4.93" y2="19.07"/><line x1="19.07" y1="4.93" x2="17.66" y2="6.34"/>`;
-const MOON_ICON = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
-
-function applyTheme(theme) {
-  const validTheme = THEME_MODES[theme] ? theme : "ivory";
-  const isDark = THEME_MODES[validTheme].mode === "dark";
-  if (isDark) lastNightTheme = validTheme;
-  else lastDayTheme = validTheme;
-
-  state.prefs.theme = validTheme;
-  document.documentElement.setAttribute("data-theme", validTheme);
-
-  const labelEl = $("dayNightLabel");
-  const iconEl = $("dayNightIcon");
-  const toggleBtn = $("dayNightToggle");
-  if (labelEl) labelEl.textContent = isDark ? "Night" : "Day";
-  if (iconEl) iconEl.innerHTML = isDark ? MOON_ICON : SUN_ICON;
-  if (toggleBtn) toggleBtn.setAttribute("aria-pressed", String(isDark));
-
-  const stockRail = $("stockRail");
-  if (stockRail) {
-    const stocks = isDark ? ["ink", "night"] : ["ivory", "antique", "sage"];
-    stockRail.innerHTML = "";
-    stocks.forEach((key) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      const active = validTheme === key;
-      btn.className = "stock-btn" + (active ? " active" : "");
-      btn.textContent = THEME_MODES[key].label;
-      btn.setAttribute("aria-pressed", String(active));
-      btn.onclick = () => applyTheme(key);
-      stockRail.appendChild(btn);
-    });
+function setTocOpen(open) {
+  state.tocOpen = Boolean(open);
+  const drawer = $("tocDrawer");
+  const btn = $("btnToc");
+  if (drawer) {
+    drawer.classList.toggle("is-closed", !state.tocOpen);
+    drawer.setAttribute("aria-hidden", String(!state.tocOpen));
+    drawer.inert = !state.tocOpen;
+    if (window.innerWidth <= 900 && tocDrawerSwipe) {
+      tocDrawerSwipe.syncOpen(state.tocOpen);
+    }
   }
+  if (btn) {
+    btn.classList.toggle("active", state.tocOpen);
+    btn.setAttribute("aria-pressed", String(state.tocOpen));
+  }
+  if (state.tocOpen) {
+    $("tocList")?.querySelector(".toc-btn.active")?.scrollIntoView({ block: "nearest" });
+  }
+}
 
-  savePrefs(state.prefs);
-  state.controller?.refreshThemeAndTypography?.();
+function setMarginOpen(open) {
+  const rail = $("marginaliaRail");
+  const btn = $("btnMargin");
+  if (rail) {
+    rail.classList.toggle("is-closed", !open);
+    rail.setAttribute("aria-hidden", String(!open));
+    rail.inert = !open;
+  }
+  if (btn) {
+    btn.classList.toggle("active", open);
+    btn.setAttribute("aria-pressed", String(open));
+  }
 }
 
 function syncControlsFromPrefs() {
-  applyTheme(state.prefs.theme);
+  themeManager.applyTheme(state.prefs.theme);
 
+  $("readingFormatSelect").value = state.prefs.readingFormat || "editorial";
   $("fontFamilySelect").value = state.prefs.fontFamily;
   $("proseSize").value = String(state.prefs.fontSize);
   $("proseSizeVal").textContent = `${state.prefs.fontSize}px`;
@@ -149,26 +152,25 @@ function syncControlsFromPrefs() {
   $("zoomFitBtn").classList.toggle("active", state.prefs.pdfFit !== false);
   $("zoomFitBtn").setAttribute("aria-pressed", String(state.prefs.pdfFit !== false));
 
-  $("btnSpread").classList.toggle("active", state.prefs.spread);
-  $("btnSpread").setAttribute("aria-pressed", String(state.prefs.spread));
-  $("btnSpread").textContent = state.prefs.spread ? "2-Page Spread" : "Single Page";
+  document.querySelectorAll("[data-spread]").forEach((btn) => {
+    const active = (btn.dataset.spread === "true") === state.prefs.spread;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
 
-  const isPaginated = state.prefs.flowMode === "paginated";
-  $("btnFlow").classList.toggle("active", isPaginated);
-  $("btnFlow").setAttribute("aria-pressed", String(isPaginated));
-  $("btnFlow").textContent = isPaginated ? "Paginated" : "Scroll";
+  document.querySelectorAll("[data-flow]").forEach((btn) => {
+    const active = btn.dataset.flow === state.prefs.flowMode;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
 
-  $("btnMargin").classList.toggle("active", state.prefs.margin);
-  $("btnMargin").setAttribute("aria-pressed", String(state.prefs.margin));
-  $("marginaliaRail").classList.toggle("hidden", !state.prefs.margin);
+  setMarginOpen(state.prefs.margin);
 
   $("dictPin").classList.toggle("hidden", !state.prefs.dictVisible);
   $("toggleDictSectionBtn").textContent = state.prefs.dictVisible ? "Hide" : "Show";
   $("toggleDictSectionBtn").setAttribute("aria-expanded", String(state.prefs.dictVisible));
 
-  document.documentElement.style.setProperty("--font-prose", state.prefs.fontFamily);
-  document.documentElement.style.setProperty("--size-prose", `${state.prefs.fontSize}px`);
-  document.documentElement.style.setProperty("--lh-prose", String(state.prefs.lineHeight));
+  themeManager.applyTypographyTokens();
 }
 
 function setView(view) {
@@ -177,14 +179,14 @@ function setView(view) {
   $("catalogView").classList.toggle("hidden", inFolio);
   $("folioView").classList.toggle("hidden", !inFolio);
 
-  ["backLibraryBtn", "btnSpread", "btnFlow", "btnToc", "btnMargin", "btnFocus"].forEach((id) => {
+  ["backLibraryBtn", "btnToc", "btnMargin", "btnFocus", "appearanceLayoutSection"].forEach((id) => {
     $(id).classList.toggle("hidden", !inFolio);
   });
   $("activeBookBadge").classList.toggle("hidden", !inFolio || !state.activeBook);
 
   if (!inFolio) {
     setFocusMode(false);
-    $("floatPop").classList.remove("open");
+    closeFloatPop();
     renderCatalog();
   } else if (!state.activeBook && state.books.length > 0) {
     openBook(state.books[0].id);
@@ -216,8 +218,8 @@ function renderCatalog() {
   if (filtered.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.innerHTML = `<div style="font-size:15px;font-weight:600;color:var(--text-main);margin-bottom:6px;">No books found</div>
-      <div style="font-size:13px;margin-bottom:14px;">${q || state.formatFilter !== "all" ? "Try another filter or import an .epub / .pdf file." : "Import your first .epub or .pdf book to start reading."}</div>`;
+    empty.innerHTML = `<div style="font-size:var(--text-ui-lg);font-weight:600;color:var(--text-main);margin-bottom:6px;">No books found</div>
+      <div style="font-size:var(--text-ui-sm);margin-bottom:14px;">${q || state.formatFilter !== "all" ? "Try another filter or import an .epub / .pdf file." : "Import your first .epub or .pdf book to start reading."}</div>`;
     if (q || state.formatFilter !== "all") {
       const clr = document.createElement("button");
       clr.className = "btn";
@@ -239,15 +241,9 @@ function renderCatalog() {
     return;
   }
 
-  const checkSvg = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2.5 6.5 5 9 9.5 3.5"/></svg>`;
   const moreSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;
   const trashSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
   const markSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-  const closeAllCoverMenus = () => {
-    grid.querySelectorAll(".cover-menu").forEach((m) => m.classList.add("hidden"));
-    grid.querySelectorAll(".cover-more-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
-  };
 
   filtered.forEach((b) => {
     const card = document.createElement("div");
@@ -258,27 +254,29 @@ function renderCatalog() {
 
     const coverContent = b.coverDataUrl
       ? `<img src="${b.coverDataUrl}" alt="" class="cover-img" />`
-      : `<div style="margin-top:24px;font-family:'Newsreader',Georgia,serif;font-size:15px;font-weight:700;line-height:1.25;color:${b.coverTitleColor || "#ffffff"};">${escHtml(b.title.split(":")[0])}</div>
-         <div style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.8;margin-bottom:8px;">${escHtml(b.author || "")}</div>`;
+      : `<div style="margin-top:24px;font-family:'Newsreader',Georgia,serif;font-size:var(--text-ui-lg);font-weight:700;line-height:1.25;color:${b.coverTitleColor || "#ffffff"};">${escHtml(b.title.split(":")[0])}</div>
+         <div style="font-size:var(--text-ui-sm);opacity:0.85;margin-bottom:8px;">${escHtml(b.author || "")}</div>`;
 
     const fallbackBg = b.coverStyle || (b.format === "PDF"
       ? "background: linear-gradient(155deg, #8b2635 0%, #2a1216 100%); color: #fff;"
-      : "background: linear-gradient(155deg, #1d6b4b 0%, #102a1f 100%); color: #fff;");
+      : b.format === "TXT" || b.format === "MD"
+        ? "background: linear-gradient(155deg, #334155 0%, #0f172a 100%); color: #fff;"
+        : "background: linear-gradient(155deg, #1d6b4b 0%, #102a1f 100%); color: #fff;");
+
+    const progressSuffix = b.finished ? " · Finished" : b.progress > 0 ? ` · ${b.progress}%` : "";
 
     card.innerHTML = `
       <div class="cover-frame${b.coverDataUrl ? " has-cover" : ""}" style="${b.coverDataUrl ? "" : fallbackBg}">
         <button type="button" class="cover-more-btn" data-act="menu" aria-label="Book options" aria-expanded="false">${moreSvg}</button>
-        <div class="cover-menu hidden" role="menu">
+        <div class="cover-menu" role="menu">
           <button type="button" class="cover-menu-item" role="menuitem" data-act="toggle-read">${markSvg}<span>${b.finished ? "Mark as unread" : "Mark as finished"}</span></button>
           <button type="button" class="cover-menu-item danger" role="menuitem" data-act="delete">${trashSvg}<span>Remove from library</span></button>
         </div>
-        <span class="cover-fmt">${escHtml(b.format)}</span>
         ${coverContent}
-        ${b.finished ? `<span class="cover-badge-read" title="Completed">${checkSvg}</span>` : ""}
         ${b.progress > 0 && !b.finished ? `<div class="cover-prog-track"><div class="cover-prog-fill" style="width:${b.progress}%"></div></div>` : ""}
       </div>
       <div class="cover-title">${escHtml(b.title)}</div>
-      <div class="cover-author">${escHtml(b.author || "Unknown Author")}</div>
+      <div class="cover-author">${escHtml(b.author || "Unknown author")} · ${escHtml(b.format)}${progressSuffix}</div>
     `;
 
     card.addEventListener("click", async (e) => {
@@ -288,10 +286,10 @@ function renderCatalog() {
         const act = btn.dataset.act;
         if (act === "menu") {
           const menu = card.querySelector(".cover-menu");
-          const wasHidden = menu.classList.contains("hidden");
+          const wasOpen = menu.classList.contains("open");
           closeAllCoverMenus();
-          if (wasHidden) {
-            menu.classList.remove("hidden");
+          if (!wasOpen) {
+            menu.classList.add("open");
             btn.setAttribute("aria-expanded", "true");
           }
           return;
@@ -350,12 +348,14 @@ async function openBook(bookId) {
   state.controller?.destroy();
   state.controller = null;
   state.activeBook = book;
+  state.activeTocTarget = null;
 
   await updateBookMeta(book.id, { lastOpenedAt: Date.now() });
   state.books = await getAllBooks();
 
   $("activeBookFmt").textContent = book.format;
   $("activeBookTitle").textContent = book.title;
+  $("activeBookTitle").title = book.title;
   $("activeBookBadge").title = book.author ? `${book.title} — ${book.author}` : book.title;
   $("pdfZoomGroup").classList.toggle("hidden", book.format !== "PDF");
   $("locStatus").textContent = `Loading ${book.title}...`;
@@ -371,9 +371,10 @@ async function openBook(bookId) {
     data: book.data,
     lastLocation: book.lastLocation,
     settings: state.prefs,
-    onRelocated: async ({ location, progress, label }) => {
+    onRelocated: async ({ location, progress, label, tocTarget }) => {
       $("locStatus").textContent = label;
       $("footerProgressFill").style.width = `${progress}%`;
+      if (tocTarget !== undefined) setActiveToc(tocTarget);
       if (state.activeBook) {
         state.activeBook.lastLocation = location;
         state.activeBook.progress = progress;
@@ -388,10 +389,32 @@ async function openBook(bookId) {
   };
 
   try {
-    state.controller = book.format === "EPUB" ? new EpubController(commonOpts) : new PdfController(commonOpts);
+    if (book.format === "EPUB") {
+      state.controller = new EpubController(commonOpts);
+    } else if (book.format === "PDF") {
+      state.controller = new PdfController(commonOpts);
+    } else {
+      state.controller = new TextController({ ...commonOpts, format: book.format });
+    }
     await state.controller.mount();
   } catch (err) {
     stage.innerHTML = `<div class="empty-state"><strong>Failed to open ${escHtml(book.title)}</strong><div style="margin-top:6px;">${escHtml(err?.message || "Invalid or corrupted file")}</div></div>`;
+  }
+}
+
+function setActiveToc(target) {
+  state.activeTocTarget = target ?? null;
+  const list = $("tocList");
+  if (!list) return;
+  let activeBtn = null;
+  list.querySelectorAll(".toc-btn").forEach((btn) => {
+    const isMatch = target != null && btn.dataset.target === String(target);
+    btn.classList.toggle("active", isMatch);
+    btn.setAttribute("aria-current", isMatch ? "true" : "false");
+    if (isMatch) activeBtn = btn;
+  });
+  if (activeBtn && state.tocOpen) {
+    activeBtn.scrollIntoView({ block: "nearest" });
   }
 }
 
@@ -405,18 +428,18 @@ function renderToc(items) {
   items.forEach((item) => {
     const btn = document.createElement("button");
     btn.className = "toc-btn";
+    btn.dataset.target = String(item.target);
     btn.textContent = item.label;
     btn.onclick = () => {
+      setActiveToc(item.target);
       state.controller?.goTo(item.target);
       if (window.innerWidth <= 900) {
-        state.tocOpen = false;
-        $("tocDrawer").classList.add("hidden");
-        $("btnToc").classList.remove("active");
-        $("btnToc").setAttribute("aria-pressed", "false");
+        setTocOpen(false);
       }
     };
     list.appendChild(btn);
   });
+  setActiveToc(state.activeTocTarget);
 }
 
 const REMOVE_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
@@ -547,6 +570,17 @@ function wireDictActions(container, res) {
 
 let lastLookupAt = 0;
 
+function closeFloatPop() {
+  const pop = $("floatPop");
+  if (!pop.classList.contains("open")) return;
+  pop.classList.remove("open");
+  navigator.vibrate?.(8);
+  window.getSelection()?.removeAllRanges();
+  document.querySelectorAll(".epub-mount iframe").forEach((f) => {
+    try { f.contentWindow?.getSelection()?.removeAllRanges(); } catch {}
+  });
+}
+
 async function handleWordLookup(word, clientX, clientY) {
   lastLookupAt = Date.now();
   const railVisible = !state.focusMode && state.prefs.margin && state.prefs.dictVisible && window.innerWidth > 900;
@@ -557,6 +591,9 @@ async function handleWordLookup(word, clientX, clientY) {
     const pop = $("floatPop");
     const left = Math.min(Math.max(12, clientX + 10), window.innerWidth - 372);
     const top = Math.min(Math.max(12, clientY + 10), window.innerHeight - 260);
+    const originX = Math.max(0, Math.min(360, clientX - left));
+    const originY = Math.max(0, Math.min(240, clientY - top));
+    pop.style.transformOrigin = `${originX}px ${originY}px`;
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
     pop.classList.add("open");
@@ -572,20 +609,23 @@ async function handleWordLookup(word, clientX, clientY) {
 }
 
 async function importFiles(fileList) {
-  const files = Array.from(fileList || []).filter((f) => /\.(epub|pdf)$/i.test(f.name));
+  const files = Array.from(fileList || []).filter((f) => /\.(epub|pdf|txt|md)$/i.test(f.name));
   if (files.length === 0) {
-    showToast("Please select .epub or .pdf files.");
+    showToast("Please select .epub, .pdf, .txt, or .md files.");
     return;
   }
 
   for (const file of files) {
-    const ext = file.name.toLowerCase().endsWith(".pdf") ? "PDF" : "EPUB";
-    const fallbackTitle = file.name.replace(/\.(epub|pdf)$/i, "");
+    const lower = file.name.toLowerCase();
+    const ext = lower.endsWith(".pdf") ? "PDF" : lower.endsWith(".md") ? "MD" : lower.endsWith(".txt") ? "TXT" : "EPUB";
+    const fallbackTitle = file.name.replace(/\.(epub|pdf|txt|md)$/i, "");
     try {
       const arrayBuffer = await file.arrayBuffer();
       const meta = ext === "EPUB"
         ? await extractEpubMetadata(arrayBuffer, fallbackTitle)
-        : await extractPdfMetadata(arrayBuffer, fallbackTitle);
+        : ext === "PDF"
+          ? await extractPdfMetadata(arrayBuffer, fallbackTitle)
+          : await extractTextMetadata(arrayBuffer, fallbackTitle, ext);
 
       const now = Date.now();
       await saveBook({
@@ -616,65 +656,34 @@ function wireEvents() {
   $("brandHomeBtn").onclick = () => setView("catalog");
   $("backLibraryBtn").onclick = () => setView("catalog");
 
-  $("btnSpread").onclick = async () => {
-    state.prefs.spread = !state.prefs.spread;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    await state.controller?.updateSettings?.(state.prefs);
-  };
+  document.querySelectorAll("[data-spread]").forEach((btn) => {
+    btn.onclick = () => updatePrefs({ spread: btn.dataset.spread === "true" });
+  });
 
-  $("btnFlow").onclick = async () => {
-    state.prefs.flowMode = state.prefs.flowMode === "paginated" ? "scroll" : "paginated";
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    await state.controller?.updateSettings?.(state.prefs);
-  };
+  document.querySelectorAll("[data-flow]").forEach((btn) => {
+    btn.onclick = () => updatePrefs({ flowMode: btn.dataset.flow });
+  });
 
-  $("btnToc").onclick = () => {
-    state.tocOpen = !state.tocOpen;
-    $("tocDrawer").classList.toggle("hidden", !state.tocOpen);
-    $("btnToc").classList.toggle("active", state.tocOpen);
-    $("btnToc").setAttribute("aria-pressed", String(state.tocOpen));
-  };
-  $("closeTocBtn").onclick = () => {
-    state.tocOpen = false;
-    $("tocDrawer").classList.add("hidden");
-    $("btnToc").classList.remove("active");
-    $("btnToc").setAttribute("aria-pressed", "false");
-  };
+  $("btnToc").onclick = () => setTocOpen(!state.tocOpen);
+  $("closeTocBtn").onclick = () => setTocOpen(false);
 
-  $("btnMargin").onclick = () => {
-    state.prefs.margin = !state.prefs.margin;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-  };
+  $("btnMargin").onclick = () => updatePrefs({ margin: !state.prefs.margin }, false);
 
   $("btnFocus").onclick = () => setFocusMode(!state.focusMode);
   $("focusExitBtn").onclick = () => setFocusMode(false);
   $("focusPrevBtn").onclick = () => state.controller?.prev();
   $("focusNextBtn").onclick = () => state.controller?.next();
 
-  $("hideMarginBtn").onclick = () => {
-    state.prefs.margin = false;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-  };
+  $("hideMarginBtn").onclick = () => updatePrefs({ margin: false }, false);
 
-  $("toggleDictSectionBtn").onclick = () => {
-    state.prefs.dictVisible = !state.prefs.dictVisible;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-  };
+  $("toggleDictSectionBtn").onclick = () => updatePrefs({ dictVisible: !state.prefs.dictVisible }, false);
 
   $("clearDictBtn").onclick = () => {
     $("dictPin").innerHTML = `<div class="muted-note">Double-click or select any word (or Alt + Click) to inspect its definition, phonetics, and audio without obscuring prose.</div>`;
     $("clearDictBtn").classList.add("hidden");
   };
 
-  $("dayNightToggle").onclick = () => {
-    const isDark = THEME_MODES[state.prefs.theme]?.mode === "dark";
-    applyTheme(isDark ? lastDayTheme : lastNightTheme);
-  };
+  themeManager.initControls();
 
   document.querySelectorAll(".fmt-filter").forEach((btn) => {
     btn.onclick = () => {
@@ -724,28 +733,15 @@ function wireEvents() {
   $("prevBtn").onclick = () => state.controller?.prev();
   $("nextBtn").onclick = () => state.controller?.next();
 
-  $("zoomOutBtn").onclick = async () => {
+  $("zoomOutBtn").onclick = () => {
     const baseZoom = state.controller?.getEffectiveZoom?.() ?? state.prefs.pdfZoom;
-    state.prefs.pdfFit = false;
-    state.prefs.pdfZoom = Math.max(0.55, Number((baseZoom - 0.15).toFixed(2)));
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    await state.controller?.updateSettings?.(state.prefs);
+    return updatePrefs({ pdfFit: false, pdfZoom: Math.max(0.55, Number((baseZoom - 0.15).toFixed(2))) });
   };
-  $("zoomInBtn").onclick = async () => {
+  $("zoomInBtn").onclick = () => {
     const baseZoom = state.controller?.getEffectiveZoom?.() ?? state.prefs.pdfZoom;
-    state.prefs.pdfFit = false;
-    state.prefs.pdfZoom = Math.min(2.2, Number((baseZoom + 0.15).toFixed(2)));
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    await state.controller?.updateSettings?.(state.prefs);
+    return updatePrefs({ pdfFit: false, pdfZoom: Math.min(2.2, Number((baseZoom + 0.15).toFixed(2))) });
   };
-  $("zoomFitBtn").onclick = async () => {
-    state.prefs.pdfFit = true;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    await state.controller?.updateSettings?.(state.prefs);
-  };
+  $("zoomFitBtn").onclick = () => updatePrefs({ pdfFit: true });
 
   $("bookmarkBtn").onclick = async () => {
     if (!state.activeBook || !state.controller) return;
@@ -758,55 +754,48 @@ function wireEvents() {
     showToast(`Saved bookmark (${bm.label})`);
   };
 
-  $("fontFamilySelect").onchange = (e) => {
-    state.prefs.fontFamily = e.target.value;
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    state.controller?.refreshThemeAndTypography?.();
-  };
-  $("proseSize").oninput = (e) => {
-    state.prefs.fontSize = Number(e.target.value);
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    state.controller?.refreshThemeAndTypography?.();
-  };
-  $("lineHeightRange").oninput = (e) => {
-    state.prefs.lineHeight = Number(e.target.value);
-    savePrefs(state.prefs);
-    syncControlsFromPrefs();
-    state.controller?.refreshThemeAndTypography?.();
-  };
-  $("epubGuard").onchange = (e) => {
-    state.prefs.guard = e.target.checked;
-    savePrefs(state.prefs);
-    state.controller?.updateSettings?.(state.prefs);
-  };
-  $("pdfAppearance").onchange = (e) => {
-    state.prefs.pdfMode = e.target.value;
-    savePrefs(state.prefs);
-    state.controller?.updateSettings?.(state.prefs);
-  };
+  $("readingFormatSelect").onchange = (e) => updatePrefs({ readingFormat: e.target.value });
+  $("fontFamilySelect").onchange = (e) => updatePrefs({ fontFamily: e.target.value });
+  $("proseSize").oninput = (e) => updatePrefs({ fontSize: Number(e.target.value) });
+  $("lineHeightRange").oninput = (e) => updatePrefs({ lineHeight: Number(e.target.value) });
+  $("epubGuard").onchange = (e) => updatePrefs({ guard: e.target.checked });
+  $("pdfAppearance").onchange = (e) => updatePrefs({ pdfMode: e.target.value });
 
+  document.addEventListener("folio:stage-click", () => {
+    if (Date.now() - lastLookupAt > 180) closeFloatPop();
+  });
   document.addEventListener("click", (e) => {
     if (Date.now() - lastLookupAt > 180 && !$("floatPop").contains(e.target)) {
-      $("floatPop").classList.remove("open");
+      closeFloatPop();
     }
     if (!e.target.closest(".cover-menu") && !e.target.closest(".cover-more-btn")) {
-      document.querySelectorAll(".cover-menu").forEach((m) => m.classList.add("hidden"));
-      document.querySelectorAll(".cover-more-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
+      closeAllCoverMenus();
+    }
+    if (!e.target.closest("#appearanceWrap")) {
+      themeManager.closePopover();
     }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (state.focusMode) setFocusMode(false);
-      $("floatPop").classList.remove("open");
-      document.querySelectorAll(".cover-menu").forEach((m) => m.classList.add("hidden"));
-      document.querySelectorAll(".cover-more-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
+      closeFloatPop();
+      themeManager.closePopover();
+      closeAllCoverMenus();
     }
-    if (state.view === "folio" && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
-      if (e.key === "ArrowRight") state.controller?.next();
-      if (e.key === "ArrowLeft") state.controller?.prev();
-      if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const tag = document.activeElement?.tagName;
+    if (state.view === "folio" && !["INPUT", "SELECT", "TEXTAREA"].includes(tag)) {
+      const isPaginated = state.prefs.flowMode !== "scroll";
+      if (e.key === "ArrowRight" || (isPaginated && e.key === "PageDown")) {
+        e.preventDefault();
+        state.controller?.next();
+      } else if (e.key === "ArrowLeft" || (isPaginated && e.key === "PageUp")) {
+        e.preventDefault();
+        state.controller?.prev();
+      } else if (isPaginated && e.key === " " && !["BUTTON", "A"].includes(tag) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (e.shiftKey) state.controller?.prev();
+        else state.controller?.next();
+      } else if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setFocusMode(!state.focusMode);
       }
@@ -814,10 +803,109 @@ function wireEvents() {
   });
 }
 
+function attachStageSwipe() {
+  const stage = $("spreadStage");
+  if (!stage) return;
+
+  const tracker = new VelocityTracker();
+  let dragging = false;
+  let pointerId = null;
+  let startX = 0;
+  let startY = 0;
+  let committed = false;
+  let offsetX = 0;
+
+  const spring = new FluidSpring({
+    value: 0,
+    damping: 0.9,
+    response: 0.34,
+    precision: 0.5,
+    onUpdate: (val) => {
+      offsetX = val;
+      stage.style.transform = Math.abs(val) < 0.5 ? "" : `translate3d(${val}px, 0, 0)`;
+    },
+    onRest: () => {
+      offsetX = 0;
+      stage.style.transform = "";
+    }
+  });
+
+  stage.addEventListener("pointerdown", (e) => {
+    if (state.view !== "folio" || state.prefs.flowMode !== "paginated") return;
+    // Only swipe-turn pages on touch/pen so desktop mouse text selection stays natural
+    if (e.pointerType === "mouse") return;
+    if (e.target.closest("button, a, input, select, textarea")) return;
+
+    pointerId = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+    committed = false;
+    dragging = true;
+    tracker.reset();
+    tracker.add(e.clientX, e.clientY);
+    spring.stop();
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (!committed) {
+      if (Math.hypot(dx, dy) < 12) return;
+      if (Math.abs(dy) > Math.abs(dx) * 1.1) {
+        dragging = false;
+        return;
+      }
+      committed = true;
+      stage.setPointerCapture?.(e.pointerId);
+    }
+
+    tracker.add(e.clientX, e.clientY);
+    const width = stage.clientWidth || 360;
+    offsetX = rubberband(dx, width * 0.45, 0.55);
+    stage.style.transform = `translate3d(${offsetX}px, 0, 0)`;
+  });
+
+  const finishSwipe = (e) => {
+    if (!dragging || e.pointerId !== pointerId) return;
+    dragging = false;
+    if (!committed) return;
+
+    const { vx } = tracker.getVelocity();
+    const projected = offsetX + projectMomentum(vx, 0.996);
+    const threshold = Math.min(110, (stage.clientWidth || 360) * 0.24);
+
+    if (projected < -threshold) {
+      state.controller?.next();
+    } else if (projected > threshold) {
+      state.controller?.prev();
+    }
+
+    const hasMomentum = Math.abs(vx) > 300;
+    spring.to(0, {
+      velocity: vx * 0.35,
+      damping: hasMomentum ? 0.85 : 1.0,
+      response: 0.32
+    });
+  };
+
+  stage.addEventListener("pointerup", finishSwipe);
+  stage.addEventListener("pointercancel", finishSwipe);
+}
+
 async function init() {
+  tocDrawerSwipe = attachDrawerSwipe({
+    element: $("tocDrawer"),
+    side: "left",
+    isOpen: () => state.tocOpen,
+    onOpenChange: (open) => setTocOpen(open)
+  });
+  setTocOpen(false);
   syncControlsFromPrefs();
   wireEvents();
-  state.books = await seedStarterBooksIfEmpty();
+  attachStageSwipe();
+  state.books = await getAllBooks();
   state.vocab = await getVocab();
   renderCatalog();
 }

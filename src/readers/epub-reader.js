@@ -1,6 +1,6 @@
 import ePub from "epubjs";
 import JSZip from "jszip";
-import { extractWordAtPoint, extractSelectedWord } from "./dictionary.js";
+import { bindWordLookupEvents } from "../services/dictionary.js";
 
 window.JSZip = JSZip;
 
@@ -55,6 +55,7 @@ export class EpubController {
     this.book = null;
     this.rendition = null;
     this.locationsReady = false;
+    this.tocItems = [];
     this.currentCfi = lastLocation || null;
     this.wrapEl = null;
     this.mountEl = null;
@@ -80,17 +81,16 @@ export class EpubController {
     await this.book.ready;
 
     const nav = await this.book.loaded.navigation;
-    if (this.onTocReady) {
-      const flatToc = [];
-      const walk = (items, depth = 0) => {
-        for (const item of items || []) {
-          flatToc.push({ label: `${"  ".repeat(depth)}${item.label.trim()}`, target: item.href });
-          if (item.subitems?.length) walk(item.subitems, depth + 1);
-        }
-      };
-      walk(nav?.toc || []);
-      this.onTocReady(flatToc);
-    }
+    const flatToc = [];
+    const walk = (items, depth = 0) => {
+      for (const item of items || []) {
+        flatToc.push({ label: `${"  ".repeat(depth)}${item.label.trim()}`, target: item.href });
+        if (item.subitems?.length) walk(item.subitems, depth + 1);
+      }
+    };
+    walk(nav?.toc || []);
+    this.tocItems = flatToc;
+    this.onTocReady?.(flatToc);
 
     await this._initRendition(this.currentCfi);
     this._attachResizeObserver();
@@ -127,11 +127,15 @@ export class EpubController {
       this._resizeTimer = setTimeout(() => {
         this._lastSize = { w, h };
         try {
-          this.rendition?.resize(w, h, this.currentCfi || undefined);
+          const cfi = this.currentCfi;
+          this.rendition?.resize(w, h);
+          if (cfi) {
+            requestAnimationFrame(() => this.rendition?.display(cfi));
+          }
         } catch {
           // Ignore transient resize errors during teardown
         }
-      }, 110);
+      }, 120);
     });
     this.resizeObserver.observe(this.mountEl);
   }
@@ -172,31 +176,52 @@ export class EpubController {
         this.onWordLookup?.(word, rect.left + clientX, rect.top + clientY);
       };
 
-      contents.document.addEventListener("dblclick", (e) => {
-        const word = extractSelectedWord(contents.window) || extractWordAtPoint(contents.document, contents.window, e.clientX, e.clientY);
-        emitFromIframePoint(word, e.clientX, e.clientY);
-      });
-
-      contents.document.addEventListener("mouseup", (e) => {
-        if (e.button !== 0 || e.detail >= 2) return;
-        const word = extractSelectedWord(contents.window);
-        if (word) emitFromIframePoint(word, e.clientX, e.clientY);
-      });
+      bindWordLookupEvents(contents.document, contents.window, emitFromIframePoint);
 
       contents.document.addEventListener("click", (e) => {
-        if (!e.altKey) return;
-        e.preventDefault();
-        const word = extractWordAtPoint(contents.document, contents.window, e.clientX, e.clientY);
-        emitFromIframePoint(word, e.clientX, e.clientY);
+        document.dispatchEvent(new CustomEvent("folio:stage-click"));
+        if (this.settings.readingFormat !== "focus") return;
+        const p = e.target?.closest?.("p");
+        if (!p) return;
+        contents.document.querySelectorAll("p.folio-focus-active").forEach((el) => {
+          el.classList.remove("folio-focus-active");
+        });
+        p.classList.add("folio-focus-active");
       });
 
       contents.document.addEventListener("keydown", (e) => {
-        if (e.key === "ArrowRight") this.next();
-        if (e.key === "ArrowLeft") this.prev();
-        if (e.key === "Escape" || e.key.toLowerCase() === "f") {
-          window.dispatchEvent(new KeyboardEvent("keydown", { key: e.key }));
+        const isPaginated = this.settings.flowMode !== "scroll";
+        if (e.key === "ArrowRight" || (isPaginated && e.key === "PageDown")) {
+          e.preventDefault();
+          this.next();
+        } else if (e.key === "ArrowLeft" || (isPaginated && e.key === "PageUp")) {
+          e.preventDefault();
+          this.prev();
+        } else if (isPaginated && e.key === " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          if (e.shiftKey) this.prev();
+          else this.next();
+        } else if (e.key === "Escape" || e.key.toLowerCase() === "f") {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: e.key }));
         }
       });
+
+      let lastWheelTurnAt = 0;
+      contents.document.addEventListener(
+        "wheel",
+        (e) => {
+          if (this.settings.flowMode === "scroll" || e.ctrlKey) return;
+          const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+          if (Math.abs(delta) < 12) return;
+          e.preventDefault();
+          const now = Date.now();
+          if (now - lastWheelTurnAt < 280) return;
+          lastWheelTurnAt = now;
+          if (delta > 0) this.next();
+          else this.prev();
+        },
+        { passive: false }
+      );
     });
 
     this.rendition.on("relocated", (location) => {
@@ -208,14 +233,33 @@ export class EpubController {
       } else if (location?.start?.percentage != null) {
         percent = Math.round(location.start.percentage * 100);
       }
-      const pageLabel = location?.start?.displayed?.page && location?.start?.displayed?.total
-        ? `Section page ${location.start.displayed.page}/${location.start.displayed.total} · ${percent}%`
-        : `${percent}% read`;
-      this.onRelocated?.({ location: cfi, progress: percent, label: pageLabel });
+      const displayed = location?.start?.displayed;
+      const eta = this._estimateChapterEta(location);
+      const pageLabel = displayed?.page && displayed?.total
+        ? `Page ${displayed.page}/${displayed.total} · ${percent}%${eta ? ` · ${eta}` : ""}`
+        : `${percent}% read${eta ? ` · ${eta}` : ""}`;
+      this.onRelocated?.({
+        location: cfi,
+        progress: percent,
+        label: pageLabel,
+        tocTarget: this._resolveTocTarget(location)
+      });
     });
 
     await this.rendition.display(startCfi || undefined);
     this.refreshThemeAndTypography();
+  }
+
+  _resolveTocTarget(location) {
+    const href = (location?.start?.href || "").split("#")[0];
+    if (!href || !this.tocItems.length) return null;
+    const exact = this.tocItems.find((t) => t.target.split("#")[0] === href);
+    if (exact) return exact.target;
+    const suffix = this.tocItems.find((t) => {
+      const base = t.target.split("#")[0];
+      return href.endsWith(base) || base.endsWith(href);
+    });
+    return suffix ? suffix.target : null;
   }
 
   _applyThemeToDoc(doc) {
@@ -258,9 +302,9 @@ export class EpubController {
       body {
         box-sizing: border-box !important;
         width: 100% !important;
-        max-width: 66ch !important;
+        max-width: 64ch !important;
         margin: 0 auto !important;
-        padding: 28px 36px 52px !important;
+        padding: 36px 42px 64px !important;
         overflow-x: hidden !important;
       }
       `
@@ -359,11 +403,11 @@ export class EpubController {
         font-family: ${font};
         font-size: 1em;
         line-height: ${lh};
-        margin: 0 0 0.72em;
+        margin: 0 0 1.05em;
         orphans: 2;
         widows: 2;
-        hyphens: auto;
-        -webkit-hyphens: auto;
+        hyphens: none;
+        -webkit-hyphens: none;
       }
       ul, ol {
         margin: 0.6em 0 0.85em;
@@ -475,6 +519,73 @@ export class EpubController {
       ${scrollMeasureCss}
       ${guardCss}
       ${imgDimCss}
+      ${this._getFormatCss(accent)}
+    `;
+
+    if ((this.settings.readingFormat || "editorial") === "focus" && !doc.querySelector("p.folio-focus-active")) {
+      const firstP = [...doc.querySelectorAll("p")].find((el) => el.textContent.trim().length > 20);
+      firstP?.classList.add("folio-focus-active");
+    }
+  }
+
+  _getFormatCss(accent) {
+    const fmt = this.settings.readingFormat || "editorial";
+    if (fmt === "book") {
+      return `
+        body p {
+          margin: 0 0 0.28em !important;
+          text-indent: 1.55em !important;
+        }
+        body h1 + p, body h2 + p, body h3 + p, body hr + p, body blockquote + p, body p:first-child {
+          text-indent: 0 !important;
+        }
+        body h1 + p::first-letter {
+          float: left;
+          font-size: 2.95em;
+          line-height: 0.84;
+          padding: 4px 8px 0 0;
+          font-weight: 600;
+          color: ${accent} !important;
+        }
+      `;
+    }
+    if (fmt === "focus") {
+      return `
+        body p {
+          margin: 0 0 1.15em !important;
+          padding: 8px 12px !important;
+          border-radius: 8px;
+          border-left: 2px solid transparent !important;
+          opacity: 0.54;
+          cursor: pointer;
+          transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),
+                      background-color 180ms cubic-bezier(0.23, 1, 0.32, 1),
+                      border-color 180ms cubic-bezier(0.23, 1, 0.32, 1);
+        }
+        @media (hover: hover) and (pointer: fine) {
+          body p:hover { opacity: 0.88; }
+        }
+        body p.folio-focus-active {
+          opacity: 1 !important;
+          background-color: color-mix(in srgb, ${accent} 7%, transparent) !important;
+          border-left-color: ${accent} !important;
+        }
+      `;
+    }
+    // "editorial" (default): airy paragraph spacing + clean chapter lead drop-cap
+    return `
+      body p {
+        margin: 0 0 1.05em !important;
+        text-indent: 0 !important;
+      }
+      body h1 + p::first-letter {
+        float: left;
+        font-size: 2.85em;
+        line-height: 0.84;
+        padding: 4px 8px 0 0;
+        font-weight: 600;
+        color: ${accent} !important;
+      }
     `;
   }
 
@@ -502,11 +613,58 @@ export class EpubController {
     this.refreshThemeAndTypography();
   }
 
+  _estimateChapterEta(location) {
+    const href = location?.start?.href;
+    const displayed = location?.start?.displayed;
+    if (!href || !displayed?.total) return "";
+
+    this._chapterWordCounts ??= new Map();
+    let totalWords = this._chapterWordCounts.get(href);
+    if (totalWords == null) {
+      const doc = this.rendition?.getContents?.()?.[0]?.document;
+      const text = doc?.body?.innerText || "";
+      totalWords = text.trim() ? text.trim().split(/\s+/).length : 0;
+      if (totalWords > 0) this._chapterWordCounts.set(href, totalWords);
+    }
+    if (!totalWords) return "";
+
+    const remainingRatio = Math.max(0, (displayed.total - displayed.page + 1) / displayed.total);
+    const mins = Math.round((totalWords * remainingRatio) / 230);
+    return mins < 1 ? "< 1 min left in ch." : `~${mins} min left in ch.`;
+  }
+
+  _getScrollTarget() {
+    const container = this.mountEl?.querySelector(".epub-container");
+    if (container && container.scrollHeight > container.clientHeight + 4) {
+      return container;
+    }
+    const contents = this.rendition?.getContents?.()?.[0];
+    const docEl = contents?.document?.scrollingElement || contents?.document?.documentElement;
+    if (docEl && docEl.scrollHeight > docEl.clientHeight + 4) {
+      return docEl;
+    }
+    return null;
+  }
+
   prev() {
+    if (this.settings.flowMode === "scroll") {
+      const target = this._getScrollTarget();
+      if (target && target.scrollTop > 8) {
+        target.scrollBy({ top: -Math.round(target.clientHeight * 0.85), behavior: "smooth" });
+        return;
+      }
+    }
     return this.rendition?.prev();
   }
 
   next() {
+    if (this.settings.flowMode === "scroll") {
+      const target = this._getScrollTarget();
+      if (target && target.scrollTop + target.clientHeight < target.scrollHeight - 8) {
+        target.scrollBy({ top: Math.round(target.clientHeight * 0.85), behavior: "smooth" });
+        return;
+      }
+    }
     return this.rendition?.next();
   }
 

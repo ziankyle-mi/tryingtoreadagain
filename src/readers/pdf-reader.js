@@ -1,6 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.js?url";
-import { extractWordAtPoint, extractSelectedWord } from "./dictionary.js";
+import { bindWordLookupEvents } from "../services/dictionary.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -88,7 +88,7 @@ export class PdfController {
       const w = Math.round(entry.contentRect.width);
       const h = Math.round(entry.contentRect.height);
       if (w < 200) return;
-      if (Math.abs(w - this._lastContainerSize.w) < 8) return;
+      if (Math.abs(w - this._lastContainerSize.w) < 8 && Math.abs(h - this._lastContainerSize.h) < 8) return;
       this._lastContainerSize = { w, h };
 
       clearTimeout(this._resizeTimer);
@@ -149,6 +149,7 @@ export class PdfController {
         entries.push({ label: `Page ${p}`, target: p });
       }
     }
+    this.tocItems = entries;
     this.onTocReady(entries);
   }
 
@@ -269,21 +270,7 @@ export class PdfController {
     const card = document.createElement("div");
     card.dataset.page = String(pageNum);
     card.className = "pdf-page-card" + (this.settings.pdfMode ? ` ${this.settings.pdfMode}` : "");
-    card.addEventListener("dblclick", (e) => {
-      const word = extractSelectedWord(window) || extractWordAtPoint(document, window, e.clientX, e.clientY);
-      if (word) this.onWordLookup?.(word, e.clientX, e.clientY);
-    });
-    card.addEventListener("mouseup", (e) => {
-      if (e.button !== 0 || e.detail >= 2) return;
-      const word = extractSelectedWord(window);
-      if (word) this.onWordLookup?.(word, e.clientX, e.clientY);
-    });
-    card.addEventListener("click", (e) => {
-      if (!e.altKey) return;
-      e.preventDefault();
-      const word = extractWordAtPoint(document, window, e.clientX, e.clientY);
-      if (word) this.onWordLookup?.(word, e.clientX, e.clientY);
-    });
+    bindWordLookupEvents(card, window, (word, x, y) => this.onWordLookup?.(word, x, y));
     return card;
   }
 
@@ -335,7 +322,11 @@ export class PdfController {
     const label = this.settings.spread && this.settings.flowMode !== "scroll" && this.currentPage + 1 <= this.numPages
       ? `Pages ${this.currentPage}–${this.currentPage + 1} of ${this.numPages} · ${progress}%`
       : `Page ${this.currentPage} of ${this.numPages} · ${progress}%`;
-    this.onRelocated?.({ location: this.currentPage, progress, label });
+    let tocTarget = null;
+    for (const item of this.tocItems || []) {
+      if (Number(item.target) <= this.currentPage) tocTarget = item.target;
+    }
+    this.onRelocated?.({ location: this.currentPage, progress, label, tocTarget });
   }
 
   updateAppearance(pdfMode) {
@@ -368,10 +359,15 @@ export class PdfController {
       const target = Math.max(1, this.currentPage - 1);
       return this.goTo(target);
     }
+    if (this.container && this.container.scrollTop > 12) {
+      this.container.scrollBy({ top: -Math.round(this.container.clientHeight * 0.82), behavior: "smooth" });
+      return;
+    }
     const step = this.settings.spread ? 2 : 1;
     if (this.currentPage > 1) {
       this.currentPage = Math.max(1, this.currentPage - step);
       await this.render();
+      if (this.container) this.container.scrollTop = 0;
     }
   }
 
@@ -380,13 +376,19 @@ export class PdfController {
       const target = Math.min(this.numPages, this.currentPage + 1);
       return this.goTo(target);
     }
+    if (this.container && this.container.scrollTop + this.container.clientHeight < this.container.scrollHeight - 12) {
+      this.container.scrollBy({ top: Math.round(this.container.clientHeight * 0.82), behavior: "smooth" });
+      return;
+    }
     const step = this.settings.spread ? 2 : 1;
     if (this.currentPage + step <= this.numPages) {
       this.currentPage += step;
       await this.render();
+      if (this.container) this.container.scrollTop = 0;
     } else if (this.currentPage < this.numPages) {
       this.currentPage = this.numPages;
       await this.render();
+      if (this.container) this.container.scrollTop = 0;
     }
   }
 
