@@ -218,6 +218,16 @@ export class PdfController {
       cards.push(card);
     }
 
+    const evictFarPages = (centerPage) => {
+      for (const pNum of Array.from(rendered)) {
+        if (Math.abs(pNum - centerPage) > 4) {
+          const card = cards[pNum - 1];
+          if (card) card.innerHTML = "";
+          rendered.delete(pNum);
+        }
+      }
+    };
+
     if (this.currentPage > 1) {
       const activeCard = this.stackEl.querySelector(`.pdf-page-card[data-page="${this.currentPage}"]`);
       activeCard?.scrollIntoView({ behavior: "auto", block: "start" });
@@ -254,6 +264,7 @@ export class PdfController {
         }
         if (bestRatio > 0.15 && bestPage !== this.currentPage) {
           this.currentPage = bestPage;
+          evictFarPages(bestPage);
           this._emitLocation();
         }
       },

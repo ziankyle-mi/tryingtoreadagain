@@ -211,53 +211,6 @@ export class TextController {
       hyphens: none;
     `;
 
-    let styleEl = document.getElementById("text-reader-dynamic-css");
-    if (!styleEl) {
-      styleEl = document.createElement("style");
-      styleEl.id = "text-reader-dynamic-css";
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `
-      .text-reader-page h1, .text-reader-page h2, .text-reader-page h3 {
-        line-height: 1.24;
-        margin: 1.2em 0 0.55em;
-      }
-      .text-reader-page blockquote {
-        margin: 1.1em 0;
-        padding: 0.2em 0 0.2em 1.1em;
-        border-left: 3px solid var(--accent);
-        color: var(--text-muted);
-        font-style: italic;
-      }
-      .text-reader-page pre {
-        padding: 0.9em 1.1em;
-        border-radius: 8px;
-        background: color-mix(in srgb, var(--text-main) 6%, transparent);
-        overflow-x: auto;
-        font-size: 0.85em;
-      }
-      .text-reader-page[data-format="editorial"] p { margin: 0 0 1.05em; }
-      .text-reader-page[data-format="book"] p { margin: 0 0 0.28em; text-indent: 1.55em; }
-      .text-reader-page[data-format="book"] h1 + p,
-      .text-reader-page[data-format="book"] h2 + p,
-      .text-reader-page[data-format="book"] h3 + p,
-      .text-reader-page[data-format="book"] p:first-child { text-indent: 0; }
-      .text-reader-page[data-format="focus"] p {
-        margin: 0 0 1.1em;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border-left: 2px solid transparent;
-        opacity: 0.54;
-        cursor: pointer;
-        transition: opacity 180ms cubic-bezier(0.23,1,0.32,1), background-color 180ms cubic-bezier(0.23,1,0.32,1);
-      }
-      .text-reader-page[data-format="focus"] p.folio-focus-active {
-        opacity: 1;
-        background-color: color-mix(in srgb, var(--accent) 7%, transparent);
-        border-left-color: var(--accent);
-      }
-    `;
-
     if (fmt === "focus" && !this.articleEl.querySelector("p.folio-focus-active")) {
       const firstP = [...this.articleEl.querySelectorAll("p")].find((el) => el.textContent.trim().length > 20);
       firstP?.classList.add("folio-focus-active");

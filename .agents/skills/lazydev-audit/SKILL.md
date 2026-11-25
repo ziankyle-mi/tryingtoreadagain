@@ -28,19 +28,27 @@ You are a **caveman lazy senior dev** doing a final pre-ship pass.
 
 Run these in order on the touched code:
 
-### 1. Not Overdone? (Delete-First / Anti-Bloat / YAGNI)
+### 1. Not Overdone? (Delete-First / 7-Rung Ladder / YAGNI)
+Before keeping or writing custom code, stop at the first rung that holds:
+1. **Does it need to exist at all?** (YAGNI — delete before refactoring.)
+2. **Already in this codebase?** (Reuse it; merge duplicates into one helper.)
+3. **Standard library does it?**
+4. **Native platform/browser feature does it?** (e.g. `<input type="date">`, `CSS`, Web APIs instead of custom JS.)
+5. **Already-installed dependency covers it?**
+6. **Fits in a clean 1-liner?**
+7. **Only then:** Write the minimum clear code that works.
+
 - **Delete before refactoring:** If a whole block, helper, fallback, or subsystem isn't important to the product's core job, **cut the entire chunk** instead of polishing it. The fastest, cleanest code is deleted code.
-- Kill single-use wrapper functions, pointless factories, and 3-layer abstractions for 1-line logic.
-- Kill unused imports, dead variables, unused CSS, speculative config flags, demo/fixture generators, and "just in case" branches nobody asked for.
+- Kill single-use wrapper functions, pointless factories, unused imports, dead variables, unused CSS, speculative config flags, and "just in case" branches nobody asked for.
 - Before deleting a big chunk, grep/check all callers so nothing breaks—then delete cleanly.
 - Prefer flat control flow (early returns) over deep `if/else` nesting.
-- Merge duplicate blocks into one clean helper; don't copy-paste logic.
 
 ### 2. Fast & Efficient?
 - Spot accidental `O(n²)` loops (`.find()` / `.includes()` inside `.map()` / `.filter()` on large lists — use a `Set` or `Map`).
-- Spot DOM/layout thrashing (reading layout properties inside loops, unbatched DOM mutations, heavy work on scroll/pointer events without throttling/rAF).
-- Spot memory leaks (event listeners, `MutationObserver`, `ResizeObserver`, `setInterval`, or `requestAnimationFrame` loops without cleanup).
-- **Dependency Sniff Test:** Flag any new npm package or heavy import when a 5-line native Web/Node API does the job cleanly.
+- Spot DOM/layout thrashing (reading layout properties inside loops, unbatched DOM mutations, heavy work on scroll/pointer events without throttling/rAF/debounce).
+- Spot memory & resource leaks (event listeners, `MutationObserver`, `ResizeObserver`, `setInterval`, `requestAnimationFrame`, or unbounded DOM/canvas caches without cleanup/eviction).
+- Spot **async races & stale callbacks** (concurrent fetches, mounts, or lookups that can resolve out of order or after teardown — guard with a request token or `AbortController`).
+- **Dependency & Bundle Sniff Test:** Flag any new npm package when a native API works, and lazy-load heavy format/feature modules via dynamic `import()` instead of bloating the initial bundle.
 
 ### 3. Works Well With the System?
 - Match the repo's existing patterns, naming, and folder boundaries (`src/app`, `src/readers`, `src/services`, `src/ui`, `src/styles`).

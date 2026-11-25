@@ -191,6 +191,7 @@ export class VelocityTracker {
 export function attachDrawerSwipe({
   element,
   side = "left", // "left" | "right"
+  enabled = () => true,
   isOpen,
   onOpenChange,
   getWidth = () => element.getBoundingClientRect().width || 270
@@ -213,9 +214,11 @@ export function attachDrawerSwipe({
     precision: 0.5,
     onUpdate: (val) => {
       currentOffset = val;
+      element.style.transition = "none";
       element.style.transform = `translate3d(${val}px, 0, 0)`;
     },
     onRest: (val) => {
+      element.style.transition = "";
       if (Math.abs(val) < 0.5) {
         element.style.transform = "";
       }
@@ -223,6 +226,7 @@ export function attachDrawerSwipe({
   });
 
   const onPointerDown = (e) => {
+    if (!enabled()) return;
     if (e.button !== 0 && e.pointerType === "mouse") return;
     if (e.target.closest("button, a, input, select, textarea")) return;
     pointerId = e.pointerId;
@@ -250,6 +254,7 @@ export function attachDrawerSwipe({
         return;
       }
       committed = true;
+      element.style.transition = "none";
       element.setPointerCapture?.(e.pointerId);
     }
 

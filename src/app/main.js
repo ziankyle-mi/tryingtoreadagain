@@ -9,11 +9,12 @@ import {
   removeVocabWord
 } from "../services/storage.js";
 import { lookupDefinition, escHtml } from "../services/dictionary.js";
-import { extractEpubMetadata, EpubController } from "../readers/epub-reader.js";
-import { extractPdfMetadata, PdfController } from "../readers/pdf-reader.js";
-import { extractTextMetadata, TextController } from "../readers/text-reader.js";
 import { createThemeManager } from "../ui/theme.js";
 import { FluidSpring, VelocityTracker, projectMomentum, rubberband, attachDrawerSwipe } from "../ui/motion.js";
+
+const loadEpubReader = () => import("../readers/epub-reader.js");
+const loadPdfReader = () => import("../readers/pdf-reader.js");
+const loadTextReader = () => import("../readers/text-reader.js");
 
 const PREFS_KEY = "editorial_folio_prefs_v1";
 
@@ -185,6 +186,8 @@ function setView(view) {
   $("activeBookBadge").classList.toggle("hidden", !inFolio || !state.activeBook);
 
   if (!inFolio) {
+    openBookToken++;
+    flushProgressSave();
     setFocusMode(false);
     closeFloatPop();
     renderCatalog();
@@ -219,7 +222,7 @@ function renderCatalog() {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.innerHTML = `<div style="font-size:var(--text-ui-lg);font-weight:600;color:var(--text-main);margin-bottom:6px;">No books found</div>
-      <div style="font-size:var(--text-ui-sm);margin-bottom:14px;">${q || state.formatFilter !== "all" ? "Try another filter or import an .epub / .pdf file." : "Import your first .epub or .pdf book to start reading."}</div>`;
+      <div style="font-size:var(--text-ui-sm);margin-bottom:14px;">${q || state.formatFilter !== "all" ? "Try another filter or import an .epub, .pdf, .txt, or .md file." : "Import your first .epub, .pdf, .txt, or .md file to start reading."}</div>`;
     if (q || state.formatFilter !== "all") {
       const clr = document.createElement("button");
       clr.className = "btn";
@@ -316,6 +319,7 @@ function renderCatalog() {
     });
 
     card.addEventListener("keydown", (e) => {
+      if (e.target.closest("button")) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         openBook(b.id);
@@ -331,15 +335,38 @@ function renderCatalog() {
     slot.className = "add-book-slot";
     slot.innerHTML = `
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      <span>Drop or import<br/>EPUB / PDF</span>
+      <span>Drop or import<br/>EPUB / PDF / TXT / MD</span>
     `;
     slot.onclick = () => $("upFile").click();
     grid.appendChild(slot);
   }
 }
 
+let openBookToken = 0;
+let progressSaveTimer = null;
+let pendingProgress = null;
+
+function flushProgressSave() {
+  clearTimeout(progressSaveTimer);
+  progressSaveTimer = null;
+  if (!pendingProgress) return;
+  const { id, patch } = pendingProgress;
+  pendingProgress = null;
+  updateBookMeta(id, patch).catch(() => {});
+}
+
+function scheduleProgressSave(id, patch) {
+  pendingProgress = { id, patch };
+  clearTimeout(progressSaveTimer);
+  progressSaveTimer = setTimeout(flushProgressSave, 450);
+}
+
 async function openBook(bookId) {
+  const token = ++openBookToken;
+  flushProgressSave();
+
   const book = await getBook(bookId);
+  if (token !== openBookToken) return;
   if (!book) {
     showToast("Book could not be loaded.");
     return;
@@ -351,7 +378,9 @@ async function openBook(bookId) {
   state.activeTocTarget = null;
 
   await updateBookMeta(book.id, { lastOpenedAt: Date.now() });
+  if (token !== openBookToken) return;
   state.books = await getAllBooks();
+  if (token !== openBookToken) return;
 
   $("activeBookFmt").textContent = book.format;
   $("activeBookTitle").textContent = book.title;
@@ -371,33 +400,50 @@ async function openBook(bookId) {
     data: book.data,
     lastLocation: book.lastLocation,
     settings: state.prefs,
-    onRelocated: async ({ location, progress, label, tocTarget }) => {
+    onRelocated: ({ location, progress, label, tocTarget }) => {
+      if (token !== openBookToken) return;
       $("locStatus").textContent = label;
       $("footerProgressFill").style.width = `${progress}%`;
       if (tocTarget !== undefined) setActiveToc(tocTarget);
-      if (state.activeBook) {
+      if (state.activeBook?.id === book.id) {
         state.activeBook.lastLocation = location;
         state.activeBook.progress = progress;
-        await updateBookMeta(state.activeBook.id, { lastLocation: location, progress });
+        scheduleProgressSave(book.id, { lastLocation: location, progress });
       }
     },
-    onTocReady: (items) => renderToc(items),
+    onTocReady: (items) => {
+      if (token === openBookToken) renderToc(items);
+    },
     onWordLookup: (word, clientX, clientY) => handleWordLookup(word, clientX, clientY),
     onZoomChanged: (zoom) => {
-      $("zoomVal").textContent = `${Math.round(zoom * 100)}%`;
+      if (token === openBookToken) $("zoomVal").textContent = `${Math.round(zoom * 100)}%`;
     }
   };
 
+  let controller = null;
   try {
     if (book.format === "EPUB") {
-      state.controller = new EpubController(commonOpts);
+      const { EpubController } = await loadEpubReader();
+      controller = new EpubController(commonOpts);
     } else if (book.format === "PDF") {
-      state.controller = new PdfController(commonOpts);
+      const { PdfController } = await loadPdfReader();
+      controller = new PdfController(commonOpts);
     } else {
-      state.controller = new TextController({ ...commonOpts, format: book.format });
+      const { TextController } = await loadTextReader();
+      controller = new TextController({ ...commonOpts, format: book.format });
     }
-    await state.controller.mount();
+    if (token !== openBookToken) return;
+    state.controller = controller;
+    await controller.mount();
+    if (token !== openBookToken) {
+      controller.destroy();
+      if (state.controller === controller) state.controller = null;
+    }
   } catch (err) {
+    if (token !== openBookToken) {
+      controller?.destroy();
+      return;
+    }
     stage.innerHTML = `<div class="empty-state"><strong>Failed to open ${escHtml(book.title)}</strong><div style="margin-top:6px;">${escHtml(err?.message || "Invalid or corrupted file")}</div></div>`;
   }
 }
@@ -569,6 +615,7 @@ function wireDictActions(container, res) {
 }
 
 let lastLookupAt = 0;
+let lookupToken = 0;
 
 function closeFloatPop() {
   const pop = $("floatPop");
@@ -582,6 +629,7 @@ function closeFloatPop() {
 }
 
 async function handleWordLookup(word, clientX, clientY) {
+  const token = ++lookupToken;
   lastLookupAt = Date.now();
   const railVisible = !state.focusMode && state.prefs.margin && state.prefs.dictVisible && window.innerWidth > 900;
   const targetEl = railVisible ? $("dictPin") : $("floatPop");
@@ -600,6 +648,9 @@ async function handleWordLookup(word, clientX, clientY) {
   }
 
   const res = await lookupDefinition(word);
+  if (token !== lookupToken) return;
+  if (!railVisible && !$("floatPop").classList.contains("open")) return;
+
   state.lastLookup = res;
   targetEl.innerHTML = buildDictMarkup(res);
   wireDictActions(targetEl, res);
@@ -622,10 +673,10 @@ async function importFiles(fileList) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const meta = ext === "EPUB"
-        ? await extractEpubMetadata(arrayBuffer, fallbackTitle)
+        ? await (await loadEpubReader()).extractEpubMetadata(arrayBuffer, fallbackTitle)
         : ext === "PDF"
-          ? await extractPdfMetadata(arrayBuffer, fallbackTitle)
-          : await extractTextMetadata(arrayBuffer, fallbackTitle, ext);
+          ? await (await loadPdfReader()).extractPdfMetadata(arrayBuffer, fallbackTitle)
+          : await (await loadTextReader()).extractTextMetadata(arrayBuffer, fallbackTitle, ext);
 
       const now = Date.now();
       await saveBook({
@@ -746,6 +797,7 @@ function wireEvents() {
   $("bookmarkBtn").onclick = async () => {
     if (!state.activeBook || !state.controller) return;
     const bm = state.controller.getBookmarkPayload();
+    if (!bm) return;
     const list = state.activeBook.bookmarks || [];
     list.unshift(bm);
     state.activeBook.bookmarks = list;
@@ -898,9 +950,11 @@ async function init() {
   tocDrawerSwipe = attachDrawerSwipe({
     element: $("tocDrawer"),
     side: "left",
+    enabled: () => window.innerWidth <= 900,
     isOpen: () => state.tocOpen,
     onOpenChange: (open) => setTocOpen(open)
   });
+  window.addEventListener("pagehide", flushProgressSave);
   setTocOpen(false);
   syncControlsFromPrefs();
   wireEvents();

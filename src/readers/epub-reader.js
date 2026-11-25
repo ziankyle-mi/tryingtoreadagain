@@ -57,11 +57,14 @@ export class EpubController {
     this.locationsReady = false;
     this.tocItems = [];
     this.currentCfi = lastLocation || null;
+    this.currentProgress = 0;
+    this.currentChapterLabel = "";
     this.wrapEl = null;
     this.mountEl = null;
     this.gutterEl = null;
     this.resizeObserver = null;
     this._resizeTimer = null;
+    this._resizeRaf = 0;
     this._lastSize = { w: 0, h: 0 };
   }
 
@@ -98,6 +101,7 @@ export class EpubController {
     this.book.locations
       .generate(1024)
       .then(() => {
+        if (!this.book) return;
         this.locationsReady = true;
       })
       .catch(() => {
@@ -130,7 +134,11 @@ export class EpubController {
           const cfi = this.currentCfi;
           this.rendition?.resize(w, h);
           if (cfi) {
-            requestAnimationFrame(() => this.rendition?.display(cfi));
+            if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
+            this._resizeRaf = requestAnimationFrame(() => {
+              this._resizeRaf = 0;
+              this.rendition?.display(cfi);
+            });
           }
         } catch {
           // Ignore transient resize errors during teardown
@@ -201,7 +209,7 @@ export class EpubController {
           e.preventDefault();
           if (e.shiftKey) this.prev();
           else this.next();
-        } else if (e.key === "Escape" || e.key.toLowerCase() === "f") {
+        } else if (e.key === "Escape" || (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey)) {
           document.dispatchEvent(new KeyboardEvent("keydown", { key: e.key }));
         }
       });
@@ -238,11 +246,15 @@ export class EpubController {
       const pageLabel = displayed?.page && displayed?.total
         ? `Page ${displayed.page}/${displayed.total} · ${percent}%${eta ? ` · ${eta}` : ""}`
         : `${percent}% read${eta ? ` · ${eta}` : ""}`;
+      const tocTarget = this._resolveTocTarget(location);
+      const chapter = this.tocItems.find((t) => t.target === tocTarget)?.label?.trim() || "";
+      this.currentProgress = percent;
+      this.currentChapterLabel = chapter;
       this.onRelocated?.({
         location: cfi,
         progress: percent,
         label: pageLabel,
-        tocTarget: this._resolveTocTarget(location)
+        tocTarget
       });
     });
 
@@ -673,16 +685,25 @@ export class EpubController {
   }
 
   getBookmarkPayload() {
+    const label = this.currentChapterLabel
+      ? `${this.currentChapterLabel} · ${this.currentProgress}%`
+      : this.currentCfi
+        ? `EPUB · ${this.currentProgress}%`
+        : "Start of Book";
     return {
       id: "bm-" + Date.now(),
       location: this.currentCfi,
-      label: this.currentCfi ? "EPUB Bookmark" : "Start of Book",
+      label,
       createdAt: Date.now()
     };
   }
 
   destroy() {
     clearTimeout(this._resizeTimer);
+    if (this._resizeRaf) {
+      cancelAnimationFrame(this._resizeRaf);
+      this._resizeRaf = 0;
+    }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
